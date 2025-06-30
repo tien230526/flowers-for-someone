@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Trái Tim HÀO</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+    #pinkboard {
+      animation: heartbeat 1.5s infinite;
+      z-index: 1;
+    }
+    #textCanvas {
+      z-index: 2;
+      pointer-events: none;
+    }
+    @keyframes heartbeat {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="pinkboard"></canvas>
+  <canvas id="textCanvas"></canvas>
+  <script>
+    // Cấu hình cho hạt trái tim
+    const settings = {
+      particles: {
+        length: 5000, // Số hạt tối đa
+        duration: 2.5, // Thời gian tồn tại của hạt (giây)
+        velocity: 200, // Vận tốc hạt (pixel/giây)
+        effect: -0.6, // Hiệu ứng gia tốc
+        size: 13, // Kích thước hạt
+      },
+    };
+
+    // Polyfill cho requestAnimationFrame
+    (function() {
+      let lastTime = 0;
+      const vendors = ['ms', 'moz', 'webkit', 'o'];
+      for (let x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
+        window.requestAnimationFrame = window[vendors[x] + 'RequestAnimationFrame'];
+        window.cancelAnimationFrame = window[vendors[x] + 'CancelAnimationFrame'] || window[vendors[x] + 'CancelRequestAnimationFrame'];
+      }
+      if (!window.requestAnimationFrame) {
+        window.requestAnimationFrame = function(callback) {
+          const currTime = new Date().getTime();
+          const timeToCall = Math.max(0, 16 - (currTime - lastTime));
+          const id = window.setTimeout(() => callback(currTime + timeToCall), timeToCall);
+          lastTime = currTime + timeToCall;
+          return id;
+        };
+      }
+      if (!window.cancelAnimationFrame) {
+        window.cancelAnimationFrame = function(id) {
+          clearTimeout(id);
+        };
+      }
+    })();
+
+    // Lớp Point
+    class Point {
+      constructor(x = 0, y = 0) {
+        this.x = x;
+        this.y = y;
+      }
+      clone() {
+        return new Point(this.x, this.y);
+      }
+      length(length) {
+        if (typeof length === 'undefined') {
+          return Math.sqrt(this.x * this.x + this.y * this.y);
+        }
+        this.normalize();
+        this.x *= length;
+        this.y *= length;
+        return this;
+      }
+      normalize() {
+        const length = this.length();
+        if (length > 0) {
+          this.x /= length;
+          this.y /= length;
+        }
+        return this;
+      }
+    }
+
+    // Lớp Particle cho trái tim
+    class Particle {
+      constructor() {
+        this.position = new Point();
+        this.velocity = new Point();
+        this.acceleration = new Point();
+        this.age = 0;
+      }
+      initialize(x, y, dx, dy) {
+        this.position.x = x;
+        this.position.y = y;
+        this.velocity.x = dx;
+        this.velocity.y = dy;
+        this.acceleration.x = dx * settings.particles.effect;
+        this.acceleration.y = dy * settings.particles.effect;
+        this.age = 0;
+      }
+      update(deltaTime) {
+        this.position.x += this.velocity.x * deltaTime;
+        this.position.y += this.velocity.y * deltaTime;
+        this.velocity.x += this.acceleration.x * deltaTime;
+        this.velocity.y += this.acceleration.y * deltaTime;
+        this.age += deltaTime;
+      }
+      draw(context, image) {
+        const ease = t => --t * t * t + 1;
+        const size = image.width * ease(this.age / settings.particles.duration);
+        context.globalAlpha = 1 - this.age / settings.particles.duration;
+        context.drawImage(image, this.position.x - size / 2, this.position.y - size / 2, size, size);
+      }
+    }
+
+    // Lớp ParticlePool cho trái tim
+    class ParticlePool {
+      constructor(length) {
+        this.particles = new Array(length).fill().map(() => new Particle());
+        this.firstActive = 0;
+        this.firstFree = 0;
+        this.duration = settings.particles.duration;
+      }
+      add(x, y, dx, dy) {
+        this.particles[this.firstFree].initialize(x, y, dx, dy);
+        this.firstFree++;
+        if (this.firstFree === this.particles.length) this.firstFree = 0;
+        if (this.firstActive === this.firstFree) this.firstActive++;
+        if (this.firstActive === this.particles.length) this.firstActive = 0;
+      }
+      update(deltaTime) {
+        let i;
+        if (this.firstActive < this.firstFree) {
+          for (i = this.firstActive; i < this.firstFree; i++) {
+            this.particles[i].update(deltaTime);
+          }
+        }
+        if (this.firstFree < this.firstActive) {
+          for (i = this.firstActive; i < this.particles.length; i++) {
+            this.particles[i].update(deltaTime);
+          }
+          for (i = 0; i < this.firstFree; i++) {
+            this.particles[i].update(deltaTime);
+          }
+        }
+        while (this.particles[this.firstActive].age >= this.duration && this.firstActive !== this.firstFree) {
+          this.firstActive++;
+          if (this.firstActive === this.particles.length) this.firstActive = 0;
+        }
+      }
+      draw(context, image) {
+        let i;
+        if (this.firstActive < this.firstFree) {
+          for (i = this.firstActive; i < this.firstFree; i++) {
+            this.particles[i].draw(context, image);
+          }
+        }
+        if (this.firstFree < this.firstActive) {
+          for (i = this.firstActive; i < this.particles.length; i++) {
+            this.particles[i].draw(context, image);
+          }
+          for (i = 0; i < this.firstFree; i++) {
+            this.particles[i].draw(context, image);
+          }
+        }
+      }
+    }
+
+    // Lớp TextParticle cho chữ HÀO với chuyển động
+    class TextParticle {
+      constructor(x, y, size, alpha) {
+        this.originalX = x;
+        this.originalY = y;
+        this.x = x;
+        this.y = y;
+        this.size = size;
+        this.alpha = alpha;
+        this.timeOffset = Math.random() * 100; // Pha ngẫu nhiên cho mỗi hạt
+      }
+      draw(context, time) {
+        // Tính toán dao động lấp lánh
+        const amplitude = 3; // Biên độ dao động
+        const frequency = 0.002; // Tần số dao động
+        this.x = this.originalX + Math.sin((time + this.timeOffset) * frequency) * amplitude;
+        this.y = this.originalY + Math.cos((time + this.timeOffset) * frequency) * amplitude;
+        // Tính toán alpha nhấp nháy
+        const alphaVariation = 0.2 * Math.sin((time + this.timeOffset) * frequency * 2) + this.alpha;
+        context.beginPath();
+        context.arc(this.x, this.y, this.size, 0, 2 * Math.PI);
+        context.fillStyle = `rgba(30, 144, 255, ${alphaVariation})`;
+        context.fill();
+      }
+    }
+
+    // Hàm tạo và vẽ hiệu ứng
+    (function() {
+      const pinkboard = document.getElementById('pinkboard');
+      const textCanvas = document.getElementById('textCanvas');
+      const ctxHeart = pinkboard.getContext('2d');
+      const ctxText = textCanvas.getContext('2d');
+      const particles = new ParticlePool(settings.particles.length);
+      let textParticles = [];
+      let time;
+
+      // Tạo ảnh hạt trái tim
+      const heartImage = (function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = settings.particles.size;
+        canvas.height = settings.particles.size;
+        const context = canvas.getContext('2d');
+        const to = t => {
+          const point = pointOnHeart(t);
+          point.x = settings.particles.size / 2 + (point.x * settings.particles.size) / 350;
+          point.y = settings.particles.size / 2 - (point.y * settings.particles.size) / 350;
+          return point;
+        };
+        context.beginPath();
+        let t = -Math.PI;
+        let point = to(t);
+        context.moveTo(point.x, point.y);
+        while (t < Math.PI) {
+          t += 0.01;
+          point = to(t);
+          context.lineTo(point.x, point.y);
+        }
+        context.closePath();
+        context.fillStyle = '#ff3490';
+        context.fill();
+        const image = new Image();
+        image.src = canvas.toDataURL();
+        return image;
+      })();
+
+      // Hàm định dạng trái tim
+      function pointOnHeart(t) {
+        return new Point(
+          160 * Math.pow(Math.sin(t), 3),
+          130 * Math.cos(t) - 50 * Math.cos(2 * t) - 20 * Math.cos(3 * t) - 10 * Math.cos(4 * t) + 25
+        );
+      }
+      function pointOnHeartSmall(t) {
+        return new Point(
+          160 * Math.pow(Math.sin(t), 3),
+          130 * Math.cos(t) - 20 * Math.cos(2 * t) - 8 * Math.cos(3 * t) - 4 * Math.cos(4 * t) + 5
+        );
+      }
+      function pointOnHeartLarge(t) {
+        return new Point(
+          320 * Math.pow(Math.sin(t), 3),
+          260 * Math.cos(t) - 100 * Math.cos(2 * t) - 40 * Math.cos(3 * t) - 4 * Math.cos(4 * t) + 30
+        );
+      }
+
+      // Tạo hạt chữ HÀO
+      function createTextParticles(text, fontSize, centerX, centerY) {
+        const offscreen = document.createElement('canvas');
+        offscreen.width = textCanvas.width;
+        offscreen.height = textCanvas.height;
+        const offCtx = offscreen.getContext('2d');
+        offCtx.font = `bold ${fontSize}px Arial`;
+        offCtx.textAlign = 'center';
+        offCtx.textBaseline = 'middle';
+        offCtx.fillStyle = '#1E90FF';
+        offCtx.fillText(text, centerX, centerY);
+        const imageData = offCtx.getImageData(0, 0, textCanvas.width, textCanvas.height);
+        const data = imageData.data;
+        textParticles = [];
+        for (let y = 0; y < imageData.height; y += 6) {
+          for (let x = 0; x < imageData.width; x += 6) {
+            const index = (y * imageData.width + x) * 4;
+            if (data[index + 3] > 128) {
+              textParticles.push(new TextParticle(x, y, 2 + Math.random() * 1.5, 0.4 + Math.random() * 0.6));
+            }
+          }
+        }
+      }
+
+      // Hàm debounce cho resize
+      function debounce(fn, wait) {
+        let timeout;
+        return function(...args) {
+          clearTimeout(timeout);
+          timeout = setTimeout(() => fn(...args), wait);
+        };
+      }
+
+      // Xử lý resize
+      function resize() {
+        const heightRatio = 1.5;
+        pinkboard.width = pinkboard.clientWidth * heightRatio;
+        pinkboard.height = pinkboard.clientHeight * heightRatio;
+        textCanvas.width = window.innerWidth;
+        textCanvas.height = window.innerHeight;
+        createTextParticles('HÀO', 150, textCanvas.width / 2, textCanvas.height / 2);
+      }
+
+      // Vòng lặp vẽ
+      function render() {
+        requestAnimationFrame(render);
+        const newTime = new Date().getTime() / 1000;
+        const deltaTime = newTime - (time || newTime);
+        time = newTime;
+
+        // Xóa canvas
+        ctxHeart.clearRect(0, 0, pinkboard.width, pinkboard.height);
+        ctxText.clearRect(0, 0, textCanvas.width, textCanvas.height);
+
+        // Cập nhật và vẽ hạt trái tim
+        const particleRate = settings.particles.length / settings.particles.duration;
+        const amount = particleRate * deltaTime;
+        for (let i = 0; i < amount; i++) {
+          let pos, dir;
+          // Trái tim bình thường
+          pos = pointOnHeart(Math.PI - 2 * Math.PI * Math.random());
+          dir = pos.clone().length(settings.particles.velocity);
+          particles.add(pinkboard.width / 2 + pos.x, pinkboard.height / 2 - pos.y, dir.x, -dir.y);
+          // Trái tim nhỏ
+          pos = pointOnHeartSmall(Math.PI - 2 * Math.PI * Math.random());
+          dir = pos.clone().length(100);
+          particles.add(pinkboard.width / 2 + pos.x, pinkboard.height / 2 - pos.y, dir.x, -dir.y);
+          // Trái tim lớn
+          pos = pointOnHeartLarge(Math.PI - 2 * Math.PI * Math.random());
+          dir = pos.clone().length(100);
+          particles.add(pinkboard.width / 2 + pos.x, pinkboard.height / 2 - pos.y, dir.x, -dir.y);
+        }
+        particles.update(deltaTime);
+        particles.draw(ctxHeart, heartImage);
+
+        // Vẽ hạt chữ HÀO với chuyển động
+        for (const p of textParticles) {
+          p.draw(ctxText, time * 1000);
+        }
+      }
+
+      // Khởi tạo
+      window.addEventListener('resize', debounce(resize, 100));
+      resize();
+      render();
+    })();
+  </script>
+</body>
+</html>
